@@ -11,10 +11,12 @@ Audit the files Docker receives before a build. Uses Docker-compatible `.dockeri
 ## Install
 
 ```sh
-npx dockerignore-audit .
+npx --yes github:Dtoxic28/dockerignore-audit#v0.1.0 .
 ```
 
 Requires Node.js 22 or newer. Docker is not required.
+
+The npm package is not published yet. The command above installs the tagged release directly from this public GitHub repository.
 
 ## Usage
 
@@ -35,16 +37,16 @@ Examples:
 
 ```sh
 # Audit every discovered Dockerfile
-npx dockerignore-audit .
+npx --yes github:Dtoxic28/dockerignore-audit#v0.1.0 .
 
 # Audit one build definition
-npx dockerignore-audit . -f docker/release.Dockerfile
+npx --yes github:Dtoxic28/dockerignore-audit#v0.1.0 . -f docker/release.Dockerfile
 
 # Explain inclusion or exclusion
-npx dockerignore-audit . --explain .env
+npx --yes github:Dtoxic28/dockerignore-audit#v0.1.0 . --explain .env
 
 # CI output and warning threshold
-npx dockerignore-audit . --json --fail-on warning
+npx --yes github:Dtoxic28/dockerignore-audit#v0.1.0 . --json --fail-on warning
 ```
 
 Exit codes: `0` clean, `1` configured severity reached, `2` usage or runtime error.
