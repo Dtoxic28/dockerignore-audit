@@ -662,7 +662,7 @@ function endsWithUnescaped(value, character) {
 
 function normalizeContextPath(context, input) {
   let relative;
-  if (/^[A-Za-z]:[\\/]/.test(input)) {
+  if (path.isAbsolute(input) || /^[A-Za-z]:[\\/]/.test(input)) {
     relative = path.relative(context, path.resolve(input));
   } else {
     relative = input.replaceAll('\\', '/').replace(/^\/+/, '');
