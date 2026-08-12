@@ -1,0 +1,55 @@
+{
+  "name": "dockerignore-audit",
+  "version": "0.1.0",
+  "description": "Audit Docker build contexts with Docker-compatible .dockerignore semantics.",
+  "type": "module",
+  "bin": {
+    "dockerignore-audit": "./src/cli.js"
+  },
+  "exports": {
+    ".": {
+      "types": "./index.d.ts",
+      "import": "./src/index.js"
+    }
+  },
+  "types": "./index.d.ts",
+  "files": [
+    "src",
+    "index.d.ts",
+    "README.md",
+    "LICENSE"
+  ],
+  "scripts": {
+    "lint": "node --check src/index.js && node --check src/cli.js && node --check test/index.test.js",
+    "test": "node --test",
+    "check": "npm run lint && npm test && npm pack --dry-run"
+  },
+  "engines": {
+    "node": ">=22"
+  },
+  "dependencies": {
+    "@balena/dockerignore": "^1.0.2"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/Dtoxic28/dockerignore-audit.git"
+  },
+  "bugs": {
+    "url": "https://github.com/Dtoxic28/dockerignore-audit/issues"
+  },
+  "homepage": "https://github.com/Dtoxic28/dockerignore-audit#readme",
+  "keywords": [
+    "docker",
+    "dockerignore",
+    "build-context",
+    "security",
+    "linter",
+    "ci"
+  ],
+  "author": "Dtoxic28",
+  "license": "MIT",
+  "sideEffects": false,
+  "publishConfig": {
+    "access": "public"
+  }
+}
