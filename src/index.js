@@ -1,6 +1,6 @@
-import dockerignore from '@balena/dockerignore';
 import { lstat, opendir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { compileDockerIgnore, evaluateIgnoreRules, matchFilePattern } from './matcher.js';
 
 const INTERNAL = Symbol('dockerignore-audit');
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
@@ -45,25 +45,21 @@ export function explainPath(report, pathname) {
   if (!internal) throw new TypeError('report must come from auditContext() or auditProject().');
 
   const relative = normalizeContextPath(internal.context, pathname);
-  let ignored = false;
-  let rule;
-
-  for (const candidate of internal.rules) {
-    if (!candidate.probe.ignores(relative)) continue;
-    ignored = !candidate.negative;
-    rule = {
-      line: candidate.line,
-      pattern: candidate.pattern,
-      negative: candidate.negative,
+  const explanation = evaluateIgnoreRules(internal.rules, relative);
+  const rule = explanation.rule
+    ? {
+      line: explanation.rule.line,
+      pattern: explanation.rule.pattern,
+      negative: explanation.rule.negative,
       source: report.ignoreFile,
-    };
-  }
+    }
+    : null;
 
   return {
     path: relative,
-    ignored,
-    included: !ignored || internal.alwaysSent.has(relative),
-    rule: rule ?? null,
+    ignored: explanation.ignored,
+    included: !explanation.ignored || internal.alwaysSent.has(relative),
+    rule,
   };
 }
 
@@ -76,8 +72,11 @@ async function auditContextInternal(context, dockerfile, options, walked) {
   const ignoreFile = await selectIgnoreFile(context, dockerfile);
   const ignoreSource = ignoreFile ? displayPath(context, ignoreFile) : '.dockerignore';
   const ignoreText = ignoreFile ? await readFile(ignoreFile, 'utf8') : '';
-  const compiled = compileIgnore(ignoreText, ignoreSource);
+  const compiled = compileDockerIgnore(ignoreText, ignoreSource);
   diagnostics.push(...compiled.diagnostics);
+
+  const inactiveAdjacentIgnore = await findInactiveAdjacentIgnore(context, dockerfile, ignoreFile);
+  if (inactiveAdjacentIgnore) diagnostics.push(inactiveAdjacentIgnore);
 
   if (!ignoreFile) {
     diagnostics.push({
@@ -161,7 +160,9 @@ async function auditContextInternal(context, dockerfile, options, walked) {
       effects,
       used: effects > 0,
     })),
-    diagnostics: diagnostics.sort(compareDiagnostics),
+    diagnostics: diagnostics
+      .filter(({ code }) => !ignoredDiagnosticCodes(options).has(code))
+      .sort(compareDiagnostics),
     files,
   };
 
@@ -170,6 +171,31 @@ async function auditContextInternal(context, dockerfile, options, walked) {
     enumerable: false,
   });
   return report;
+}
+
+async function findInactiveAdjacentIgnore(context, dockerfile, ignoreFile) {
+  if (!dockerfile || path.dirname(dockerfile) === context || ignoreFile === `${dockerfile}.dockerignore`) {
+    return null;
+  }
+  const candidate = path.join(path.dirname(dockerfile), '.dockerignore');
+  if (!(await isFile(candidate))) return null;
+  const source = displayPath(context, candidate);
+  return {
+    code: 'inactive-adjacent-ignore-file',
+    severity: 'warning',
+    message: `${source} is not active for this context; use ${displayPath(context, dockerfile)}.dockerignore or audit its directory as the context.`,
+    source,
+    line: 1,
+    column: 1,
+  };
+}
+
+function ignoredDiagnosticCodes(options) {
+  if (options.ignoreCodes == null) return new Set();
+  if (!Array.isArray(options.ignoreCodes) || options.ignoreCodes.some((code) => typeof code !== 'string')) {
+    throw new TypeError('ignoreCodes must be an array of diagnostic code strings.');
+  }
+  return new Set(options.ignoreCodes);
 }
 
 async function resolveContext(input = '.') {
@@ -197,8 +223,7 @@ function discoverDockerfilesFromEntries(entries) {
       const segments = entry.path.split('/');
       const basename = segments.at(-1);
       if (segments.some((segment) => segment === '.git' || segment === 'node_modules')) return false;
-      return segments.length <= 5
-        && !basename.endsWith('.dockerignore')
+      return !basename.endsWith('.dockerignore')
         && DOCKERFILE_NAME.test(basename);
     })
     .map((entry) => path.resolve(entry.absolute))
@@ -214,55 +239,12 @@ async function selectIgnoreFile(context, dockerfile) {
   return (await isFile(root)) ? root : undefined;
 }
 
-function compileIgnore(source, sourceName) {
-  const matcher = dockerignore({ ignorecase: false });
-  const rules = [];
-  const diagnostics = [];
-  const lines = source.replace(/^\uFEFF/, '').split(/\r?\n/);
-
-  for (let index = 0; index < lines.length; index += 1) {
-    const raw = lines[index];
-    const single = dockerignore({ ignorecase: false });
-
-    try {
-      single.add(raw);
-      const parsed = single._rules?.at(-1);
-      if (!parsed) continue;
-
-      // ponytail: explanations use matcher internals; replace when line metadata becomes public.
-      const probe = dockerignore({ ignorecase: false });
-      probe._rules = [{ ...parsed, dirs: [...parsed.dirs], negative: false, regexp: undefined }];
-      probe.ignores('__dockerignore_audit_probe__');
-      matcher.add(raw);
-      rules.push({
-        line: index + 1,
-        pattern: parsed.origin,
-        negative: parsed.negative,
-        probe,
-        matches: 0,
-        effects: 0,
-      });
-    } catch (error) {
-      diagnostics.push({
-        code: 'invalid-rule',
-        severity: 'error',
-        message: error.message,
-        source: sourceName,
-        line: index + 1,
-        column: 1,
-      });
-    }
-  }
-
-  return { matcher, rules, diagnostics };
-}
-
 function analyzeRuleUsage(rules, entries) {
   const ignored = new Map(entries.map((entry) => [entry.path, false]));
 
   for (const rule of rules) {
     for (const entry of entries) {
-      if (!rule.probe.ignores(entry.path)) continue;
+      if (!rule.appliesTo(entry.path)) continue;
       rule.matches += 1;
       const next = !rule.negative;
       if (ignored.get(entry.path) !== next) {
@@ -453,8 +435,23 @@ function checkDockerfile(source, sourceName, entries, rules, uncopyablePaths) {
         continue;
       }
 
+      if (/^<<-?/.test(rawSource)) continue;
+
       const normalized = normalizeCopySource(rawSource);
-      const candidates = copyCandidates(normalized, entries);
+      let candidates;
+      try {
+        candidates = copyCandidates(normalized, entries, parsed.parents);
+      } catch {
+        diagnostics.push({
+          code: 'copy-source-pattern-invalid',
+          severity: 'error',
+          message: `Invalid ${instruction.keyword} source pattern: ${JSON.stringify(rawSource)}.`,
+          source: sourceName,
+          line: instruction.line,
+          column: 1,
+        });
+        continue;
+      }
       if (normalized === '.' || normalized === '*') {
         diagnostics.push({
           code: 'broad-copy',
@@ -523,12 +520,14 @@ function checkDockerfile(source, sourceName, entries, rules, uncopyablePaths) {
 }
 
 function dockerfileInstructions(source) {
-  const lines = source.replace(/\r\n?/g, '\n').split('\n');
+  const lines = source.replace(/^\uFEFF/, '').replace(/\r\n?/g, '\n').split('\n');
   let escape = '\\';
-  for (const line of lines.slice(0, 10)) {
-    const directive = line.match(/^\s*#\s*escape\s*=\s*([\\`])/i);
-    if (directive) escape = directive[1];
-    if (/^\s*[^#\s]/.test(line)) break;
+  for (const line of lines) {
+    const directive = line.match(/^\s*#\s*([A-Za-z][\w-]*)\s*=\s*(.*?)\s*$/);
+    if (!directive) break;
+    if (directive[1].toLowerCase() === 'escape' && /^[\\`]$/.test(directive[2])) {
+      escape = directive[2];
+    }
   }
 
   const instructions = [];
@@ -537,7 +536,7 @@ function dockerfileInstructions(source) {
 
   for (let index = 0; index < lines.length; index += 1) {
     const line = lines[index];
-    if (!buffer && /^\s*#/.test(line)) continue;
+    if (/^\s*#/.test(line) || !line.trim()) continue;
     if (!buffer) startLine = index + 1;
 
     const trimmed = line.trimEnd();
@@ -547,16 +546,33 @@ function dockerfileInstructions(source) {
     if (continued) continue;
 
     const match = buffer.match(/^([A-Za-z]+)\s+([\s\S]*)$/);
-    if (match) instructions.push({ keyword: match[1].toUpperCase(), args: match[2], line: startLine });
+    if (match) {
+      instructions.push({ keyword: match[1].toUpperCase(), args: match[2], line: startLine });
+      for (const heredoc of heredocDelimiters(match[2])) {
+        while (index + 1 < lines.length) {
+          index += 1;
+          const candidate = heredoc.stripTabs ? lines[index].replace(/^\t+/, '') : lines[index];
+          if (candidate === heredoc.delimiter) break;
+        }
+      }
+    }
     buffer = '';
   }
 
   return instructions;
 }
 
+function heredocDelimiters(input) {
+  return [...input.matchAll(/(?:^|\s)<<(-?)(?:([\x22'])(.*?)\2|([^\s]+))/g)].map((match) => ({
+    delimiter: match[3] ?? match[4],
+    stripTabs: match[1] === '-',
+  }));
+}
+
 function parseCopyInstruction(input) {
   let rest = input.trim();
   let external = false;
+  let parents = false;
   const excludes = [];
 
   while (rest.startsWith('--')) {
@@ -564,6 +580,7 @@ function parseCopyInstruction(input) {
     if (!match) break;
     const option = match[1];
     external ||= option === '--from' || option.startsWith('--from=');
+    parents ||= option === '--parents';
     if (option.startsWith('--exclude=')) excludes.push(option.slice('--exclude='.length));
     rest = rest.slice(match[0].length).trimStart();
   }
@@ -583,7 +600,7 @@ function parseCopyInstruction(input) {
   }
 
   if (values.length < 2) return { error: 'COPY/ADD requires a source and destination.' };
-  return { sources: values.slice(0, -1), destination: values.at(-1), external, excludes };
+  return { sources: values.slice(0, -1), destination: values.at(-1), external, excludes, parents };
 }
 
 function splitShellWords(input) {
@@ -616,22 +633,22 @@ function splitShellWords(input) {
   return words;
 }
 
-function copyCandidates(source, entries) {
+function copyCandidates(source, entries, globstar) {
   if (source === '.') return entries;
   const hasGlob = /[*?[]/.test(source);
   const matchedDirectories = new Set(
     entries
-      .filter((entry) => entry.type === 'directory' && matchesCopyPath(entry.path, source, hasGlob))
+      .filter((entry) => entry.type === 'directory' && matchesCopyPath(entry.path, source, hasGlob, globstar))
       .map((entry) => entry.path),
   );
 
   return entries.filter((entry) =>
-    matchesCopyPath(entry.path, source, hasGlob)
+    matchesCopyPath(entry.path, source, hasGlob, globstar)
     || [...matchedDirectories].some((directory) => entry.path.startsWith(`${directory}/`)));
 }
 
-function matchesCopyPath(candidate, source, hasGlob) {
-  if (hasGlob) return path.posix.matchesGlob(candidate, source);
+function matchesCopyPath(candidate, source, hasGlob, globstar) {
+  if (hasGlob) return matchFilePattern(source, candidate, { globstar });
   return candidate === source || candidate.startsWith(`${source}/`);
 }
 
@@ -644,14 +661,7 @@ function normalizeCopySource(source) {
 }
 
 function explainWithRules(rules, pathname) {
-  let ignored = false;
-  let rule;
-  for (const candidate of rules) {
-    if (!candidate.probe.ignores(pathname)) continue;
-    ignored = !candidate.negative;
-    rule = candidate;
-  }
-  return { ignored, rule };
+  return evaluateIgnoreRules(rules, pathname);
 }
 
 function endsWithUnescaped(value, character) {
@@ -664,6 +674,7 @@ function normalizeContextPath(context, input) {
   let relative;
   if (path.isAbsolute(input) || /^[A-Za-z]:[\\/]/.test(input)) {
     relative = path.relative(context, path.resolve(input));
+    if (path.isAbsolute(relative)) throw new RangeError('Path is outside the build context.');
   } else {
     relative = input.replaceAll('\\', '/').replace(/^\/+/, '');
   }

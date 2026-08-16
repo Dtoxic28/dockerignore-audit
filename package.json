@@ -1,10 +1,10 @@
 {
   "name": "dockerignore-audit",
-  "version": "0.1.0",
-  "description": "Audit Docker build contexts with Docker-compatible .dockerignore semantics.",
+  "version": "0.2.0",
+  "description": "Audit files eligible for Docker build contexts with current .dockerignore semantics.",
   "type": "module",
   "bin": {
-    "dockerignore-audit": "./src/cli.js"
+    "dockerignore-audit": "src/cli.js"
   },
   "exports": {
     ".": {
@@ -20,15 +20,12 @@
     "LICENSE"
   ],
   "scripts": {
-    "lint": "node --check src/index.js && node --check src/cli.js && node --check test/index.test.js",
+    "lint": "node --check src/index.js && node --check src/matcher.js && node --check src/cli.js && node --check src/action.js && node --check test/index.test.js && node --check test/matcher.test.js && node --check test/docker-conformance.test.js",
     "test": "node --test",
     "check": "npm run lint && npm test && npm pack --dry-run"
   },
   "engines": {
     "node": ">=22"
-  },
-  "dependencies": {
-    "@balena/dockerignore": "^1.0.2"
   },
   "repository": {
     "type": "git",

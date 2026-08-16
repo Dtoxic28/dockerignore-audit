@@ -53,6 +53,7 @@ export interface AuditOptions {
   dockerfile?: string;
   maxBytes?: number;
   maxFiles?: number;
+  ignoreCodes?: string[];
 }
 
 export interface PathExplanation {

@@ -1,0 +1,28 @@
+name: dockerignore-audit
+description: Audit files eligible for Docker build contexts
+author: Dtoxic28
+branding:
+  icon: shield
+  color: blue
+inputs:
+  context:
+    description: Docker build-context root
+    default: .
+  dockerfile:
+    description: Dockerfile path relative to the context
+    required: false
+  fail-on:
+    description: Lowest severity that fails the action
+    default: error
+  max-bytes:
+    description: Warn above this eligible context size
+    default: 100MiB
+  max-files:
+    description: Warn above this eligible file count
+    default: "10000"
+  ignore:
+    description: Comma or whitespace-separated diagnostic codes to suppress
+    required: false
+runs:
+  using: node24
+  main: src/action.js
