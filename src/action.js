@@ -20,6 +20,10 @@ for (const code of input('ignore').split(/[\s,]+/).filter(Boolean)) {
   args.push('--ignore', code);
 }
 
+for (const file of input('compose').split(/\r?\n/).map((value) => value.trim()).filter(Boolean)) {
+  args.push('--compose', file);
+}
+
 const result = spawnSync(process.execPath, [cli, ...args], { stdio: 'inherit' });
 if (result.error) {
   process.stderr.write(`dockerignore-audit action: ${result.error.message}\n`);

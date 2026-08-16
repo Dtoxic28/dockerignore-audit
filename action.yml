@@ -11,6 +11,9 @@ inputs:
   dockerfile:
     description: Dockerfile path relative to the context
     required: false
+  compose:
+    description: Newline-separated Compose files; audits their resolved build contexts
+    required: false
   fail-on:
     description: Lowest severity that fails the action
     default: error

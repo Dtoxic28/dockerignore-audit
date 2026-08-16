@@ -4,7 +4,7 @@ import { mkdir, mkdtemp, opendir, rm, writeFile } from 'node:fs/promises';
 import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
-import { auditContext } from '../src/index.js';
+import { auditCompose, auditContext } from '../src/index.js';
 
 const enabled = process.env.DOCKERIGNORE_AUDIT_DOCKER_TEST === '1';
 
@@ -33,6 +33,29 @@ test('matches Dockerfile-specific ignore precedence', { skip: !enabled }, async 
   });
 
   await assertMatchesDocker(context, root, 'docker/build.Dockerfile');
+});
+
+test('resolves Docker Compose build contexts', { skip: !enabled }, async (context) => {
+  const root = await fixture(context, {
+    'compose.yaml': [
+      'services:',
+      '  api:',
+      '    build:',
+      '      context: ./services/api',
+      '      dockerfile: Containerfile',
+      '',
+    ].join('\n'),
+    'services/api/Containerfile': 'FROM scratch\nCOPY app.txt /app.txt\n',
+    'services/api/.dockerignore': '*.log\n',
+    'services/api/.env': 'SECRET=value\n',
+    'services/api/app.txt': 'included\n',
+  });
+
+  const reports = await auditCompose({ context: root, composeFiles: ['compose.yaml'] });
+  assert.equal(reports.length, 1);
+  assert.deepEqual(reports[0].composeTargets, ['api']);
+  assert.equal(reports[0].dockerfile, 'Containerfile');
+  assert.ok(reports[0].diagnostics.some(({ code }) => code === 'exposed-env-file'));
 });
 
 async function assertMatchesDocker(context, root, dockerfile) {

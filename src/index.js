@@ -1,5 +1,6 @@
 import { lstat, opendir, readFile } from 'node:fs/promises';
 import path from 'node:path';
+import { inspectCompose } from './compose.js';
 import { compileDockerIgnore, evaluateIgnoreRules, matchFilePattern } from './matcher.js';
 
 const INTERNAL = Symbol('dockerignore-audit');
@@ -34,6 +35,48 @@ export async function auditContext(options = {}) {
   return auditContextInternal(context, dockerfile, options, walked);
 }
 
+export async function auditCompose(options = {}) {
+  const projectDirectory = await resolveContext(options.context);
+  const { builds, skipped, source } = await inspectCompose(projectDirectory, options.composeFiles);
+  if (builds.length === 0) {
+    const targets = skipped.map(({ target }) => target).join(', ');
+    throw new Error(`No local Docker Compose build contexts found${targets ? `; skipped: ${targets}.` : '.'}`);
+  }
+
+  const walkedContexts = new Map();
+  const reports = [];
+  for (const build of builds) {
+    const context = await resolveContext(build.context);
+    let walked = walkedContexts.get(context);
+    if (!walked) {
+      walked = await walkContext(context);
+      walkedContexts.set(context, walked);
+    }
+    const dockerfileInput = build.dockerfileText == null
+      ? undefined
+      : { source: 'dockerfile_inline', text: build.dockerfileText };
+    const report = await auditContextInternal(context, build.dockerfile, options, walked, dockerfileInput);
+    report.composeTargets = build.composeTargets;
+    reports.push(report);
+  }
+
+  if (skipped.length > 0 && !ignoredDiagnosticCodes(options).has('compose-context-skipped')) {
+    const composeSource = displayPath(projectDirectory, source);
+    reports[0].diagnostics.push(...skipped.map(({ target, context }) => ({
+      code: 'compose-context-skipped',
+      severity: 'info',
+      composeTarget: target,
+      message: `Compose target ${JSON.stringify(target)} uses a non-local context and was skipped: ${JSON.stringify(context)}.`,
+      source: composeSource,
+      line: 1,
+      column: 1,
+    })));
+    reports[0].diagnostics.sort(compareDiagnostics);
+  }
+
+  return reports.sort((left, right) => compareText(left.composeTargets[0], right.composeTargets[0]));
+}
+
 export async function discoverDockerfiles(context = '.') {
   const root = await resolveContext(context);
   const walked = await walkContext(root);
@@ -63,7 +106,7 @@ export function explainPath(report, pathname) {
   };
 }
 
-async function auditContextInternal(context, dockerfile, options, walked) {
+async function auditContextInternal(context, dockerfile, options, walked, dockerfileInput) {
   if (dockerfile && !(await isFile(dockerfile))) {
     throw new Error(`Dockerfile not found: ${displayPath(context, dockerfile)}`);
   }
@@ -135,9 +178,9 @@ async function auditContextInternal(context, dockerfile, options, walked) {
     });
   }
 
-  const dockerfileSource = dockerfile ? displayPath(context, dockerfile) : null;
-  if (dockerfile) {
-    const dockerfileText = await readFile(dockerfile, 'utf8');
+  const dockerfileSource = dockerfile ? displayPath(context, dockerfile) : dockerfileInput?.source ?? null;
+  if (dockerfile || dockerfileInput) {
+    const dockerfileText = dockerfileInput?.text ?? await readFile(dockerfile, 'utf8');
     diagnostics.push(...checkDockerfile(
       dockerfileText,
       dockerfileSource,

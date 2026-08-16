@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 
 import process from 'node:process';
-import { auditProject, explainPath } from './index.js';
+import { auditCompose, auditProject, explainPath } from './index.js';
 
 const LEVELS = { error: 0, warning: 1, info: 2 };
 
@@ -12,10 +12,13 @@ try {
     process.exit(0);
   }
 
-  const reports = await auditProject(options);
+  const reports = options.composeFiles.length > 0
+    ? await auditCompose(options)
+    : await auditProject(options);
   if (options.explain) {
     const explanations = reports.map((report) => ({
       dockerfile: report.dockerfile,
+      composeTargets: report.composeTargets,
       ignoreFile: report.ignoreFile,
       ...explainPath(report, options.explain),
     }));
@@ -45,6 +48,7 @@ function parseArguments(args) {
   const options = {
     context: '.',
     dockerfile: undefined,
+    composeFiles: [],
     explain: undefined,
     json: false,
     github: false,
@@ -64,6 +68,7 @@ function parseArguments(args) {
     else if (argument === '--github') options.github = true;
     else if (argument === '--list') options.list = parseListMode(requiredValue(args, ++index, argument));
     else if (argument === '--ignore') options.ignoreCodes.push(parseDiagnosticCode(requiredValue(args, ++index, argument)));
+    else if (argument === '--compose') options.composeFiles.push(requiredValue(args, ++index, argument));
     else if (argument === '--dockerfile' || argument === '-f') options.dockerfile = requiredValue(args, ++index, argument);
     else if (argument === '--explain') options.explain = requiredValue(args, ++index, argument);
     else if (argument === '--fail-on') options.failOn = parseLevel(requiredValue(args, ++index, argument));
@@ -78,6 +83,9 @@ function parseArguments(args) {
   }
 
   if (options.json && options.github) throw new TypeError('--json and --github cannot be combined.');
+  if (options.composeFiles.length > 0 && options.dockerfile) {
+    throw new TypeError('--compose and --dockerfile cannot be combined.');
+  }
   if (options.explain && options.github) throw new TypeError('--explain and --github cannot be combined.');
   if (options.list && (options.json || options.github || options.explain)) {
     throw new TypeError('--list only supports human-readable audit output.');
@@ -130,7 +138,7 @@ function publicReport(report) {
 }
 
 function formatReport(report, listMode) {
-  const target = report.dockerfile ?? '(no Dockerfile)';
+  const target = reportTarget(report);
   const ignore = report.ignoreFile ?? '(no ignore file)';
   const lines = [
     `${target}  ignore=${ignore}`,
@@ -165,8 +173,8 @@ function formatGitHub(reports) {
   const counts = Object.fromEntries(Object.keys(LEVELS).map((level) => [level, 0]));
 
   for (const report of reports) {
-    const target = report.dockerfile ?? '(no Dockerfile)';
     for (const diagnostic of report.diagnostics) {
+      const target = diagnostic.composeTarget ?? reportTarget(report);
       counts[diagnostic.severity] += 1;
       const command = diagnostic.severity === 'info' ? 'notice' : diagnostic.severity;
       const properties = { title: `dockerignore-audit/${diagnostic.code}` };
@@ -196,12 +204,19 @@ function escapeWorkflowProperty(value) {
 }
 
 function formatExplanation(explanation) {
-  const target = explanation.dockerfile ?? '(no Dockerfile)';
+  const target = reportTarget(explanation);
   const state = explanation.included ? 'included' : 'ignored';
   const rule = explanation.rule
     ? `${explanation.rule.source}:${explanation.rule.line} ${JSON.stringify(explanation.rule.pattern)}`
     : 'no matching rule';
   return `${target}: ${explanation.path} is ${state}; ${rule}\n`;
+}
+
+function reportTarget(report) {
+  const dockerfile = report.dockerfile ?? '(no Dockerfile)';
+  return report.composeTargets?.length
+    ? `${report.composeTargets.join(', ')} (${dockerfile})`
+    : dockerfile;
 }
 
 function formatBytes(bytes) {
@@ -222,6 +237,7 @@ Audit files eligible for Docker build contexts using current ignore semantics.
 
 Options:
   -f, --dockerfile FILE  Audit one Dockerfile instead of auto-discovery
+      --compose FILE     Audit Compose build contexts; repeatable for overlays
       --explain PATH     Show the last rule deciding one path
       --json             Emit machine-readable JSON
       --github           Emit GitHub Actions annotations

@@ -4,6 +4,7 @@ export interface Diagnostic {
   code: string;
   severity: Severity;
   message: string;
+  composeTarget?: string;
   source?: string;
   path?: string;
   line?: number;
@@ -41,6 +42,7 @@ export interface AuditStats {
 export interface AuditReport {
   context: string;
   dockerfile: string | null;
+  composeTargets?: string[];
   ignoreFile: string | null;
   stats: AuditStats;
   rules: IgnoreRule[];
@@ -56,6 +58,10 @@ export interface AuditOptions {
   ignoreCodes?: string[];
 }
 
+export type ComposeAuditOptions = Omit<AuditOptions, 'dockerfile'> & {
+  composeFiles: string[];
+};
+
 export interface PathExplanation {
   path: string;
   ignored: boolean;
@@ -65,5 +71,6 @@ export interface PathExplanation {
 
 export function auditProject(options?: AuditOptions): Promise<AuditReport[]>;
 export function auditContext(options?: AuditOptions): Promise<AuditReport>;
+export function auditCompose(options: ComposeAuditOptions): Promise<AuditReport[]>;
 export function discoverDockerfiles(context?: string): Promise<string[]>;
 export function explainPath(report: AuditReport, pathname: string): PathExplanation;

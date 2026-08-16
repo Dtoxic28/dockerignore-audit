@@ -7,6 +7,7 @@ import test from 'node:test';
 import { fileURLToPath } from 'node:url';
 import { readFile } from 'node:fs/promises';
 import { auditContext, auditProject, discoverDockerfiles, explainPath } from '../src/index.js';
+import { composeBuilds } from '../src/compose.js';
 
 const repository = path.resolve(path.dirname(fileURLToPath(import.meta.url)), '..');
 const cli = path.join(repository, 'src', 'cli.js');
@@ -104,6 +105,57 @@ test('discovers Dockerfiles below five directory levels', async (context) => {
     await discoverDockerfiles(root),
     ['one/two/three/four/five/six/Dockerfile'],
   );
+});
+
+test('resolves and deduplicates Docker Compose build contexts', () => {
+  const base = path.resolve('compose-project');
+  const { builds, skipped } = composeBuilds({
+    services: {
+      api: {
+        build: {
+          context: 'services/api',
+          dockerfile: 'Containerfile',
+          additional_contexts: {
+            shared: 'shared',
+            image: 'docker-image://alpine:latest',
+          },
+        },
+      },
+      inline: {
+        build: {
+          context: 'services/inline',
+          dockerfile_inline: 'FROM scratch\nCOPY . /app\n',
+        },
+      },
+      remote: { build: 'https://github.com/example/project.git' },
+      worker: { build: { context: 'services/api', dockerfile: 'Containerfile' } },
+    },
+  }, base);
+
+  assert.deepEqual(builds, [
+    {
+      context: path.resolve(base, 'services/api'),
+      dockerfile: path.resolve(base, 'services/api', 'Containerfile'),
+      dockerfileText: null,
+      composeTargets: ['api', 'worker'],
+    },
+    {
+      context: path.resolve(base, 'shared'),
+      dockerfile: null,
+      dockerfileText: null,
+      composeTargets: ['api:shared'],
+    },
+    {
+      context: path.resolve(base, 'services/inline'),
+      dockerfile: null,
+      dockerfileText: 'FROM scratch\nCOPY . /app\n',
+      composeTargets: ['inline'],
+    },
+  ]);
+  assert.deepEqual(skipped, [
+    { target: 'api:image', context: 'docker-image://alpine:latest' },
+    { target: 'remote', context: 'https://github.com/example/project.git' },
+  ]);
 });
 
 test('treats regex metacharacters as literal dockerignore characters', async (context) => {
@@ -238,6 +290,17 @@ test('CLI emits JSON and applies failure thresholds', async (context) => {
   });
   assert.equal(invalidRun.status, 2, invalidRun.stderr);
   assert.match(invalidRun.stderr, /error, warning, or info/);
+
+  const conflictingRun = spawnSync(process.execPath, [
+    cli,
+    root,
+    '--compose',
+    'compose.yaml',
+    '--dockerfile',
+    'Dockerfile',
+  ], { cwd: repository, encoding: 'utf8' });
+  assert.equal(conflictingRun.status, 2, conflictingRun.stderr);
+  assert.match(conflictingRun.stderr, /cannot be combined/);
 });
 
 test('GitHub Action forwards inputs and exit status', async (context) => {

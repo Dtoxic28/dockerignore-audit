@@ -2,7 +2,7 @@
 
 [![CI](https://github.com/Dtoxic28/dockerignore-audit/actions/workflows/ci.yml/badge.svg)](https://github.com/Dtoxic28/dockerignore-audit/actions/workflows/ci.yml)
 
-Audit files eligible for Docker build contexts. Uses current `.dockerignore` matching, reports exposed secrets and oversized contexts, explains the deciding rule, checks local `COPY`/`ADD` sources, and emits CI-native annotations.
+Audit files eligible for Docker and Compose build contexts. Uses current `.dockerignore` matching, reports exposed secrets and oversized contexts, explains the deciding rule, checks local `COPY`/`ADD` sources, and emits CI-native annotations.
 
 ## Why
 
@@ -11,10 +11,10 @@ Audit files eligible for Docker build contexts. Uses current `.dockerignore` mat
 ## Install
 
 ```sh
-npx --yes github:Dtoxic28/dockerignore-audit#v0.2.0 .
+npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 .
 ```
 
-Requires Node.js 22 or newer. Docker is not required.
+Requires Node.js 22 or newer. Direct context audits do not require Docker; `--compose` requires Docker Compose.
 
 The npm package is not published yet. The command above installs the tagged, zero-runtime-dependency release directly from this public GitHub repository.
 
@@ -25,6 +25,7 @@ dockerignore-audit [CONTEXT] [options]
 
 Options:
   -f, --dockerfile FILE  Audit one Dockerfile instead of auto-discovery
+      --compose FILE     Audit Compose build contexts; repeatable for overlays
       --explain PATH     Show the last rule deciding one path
       --json             Emit machine-readable JSON
       --github           Emit GitHub Actions annotations
@@ -40,22 +41,25 @@ Examples:
 
 ```sh
 # Audit every discovered Dockerfile
-npx --yes github:Dtoxic28/dockerignore-audit#v0.2.0 .
+npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 .
 
 # Audit one build definition
-npx --yes github:Dtoxic28/dockerignore-audit#v0.2.0 . -f docker/release.Dockerfile
+npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . -f docker/release.Dockerfile
+
+# Audit contexts resolved from Compose, including overlays
+npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --compose compose.yaml --compose compose.prod.yaml
 
 # Explain inclusion or exclusion
-npx --yes github:Dtoxic28/dockerignore-audit#v0.2.0 . --explain .env
+npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --explain .env
 
 # CI output and warning threshold
-npx --yes github:Dtoxic28/dockerignore-audit#v0.2.0 . --json --fail-on warning
+npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --json --fail-on warning
 
 # Inspect exactly which paths are eligible or ignored
-npx --yes github:Dtoxic28/dockerignore-audit#v0.2.0 . --list included
+npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --list included
 
 # Suppress a known diagnostic without hiding other warnings
-npx --yes github:Dtoxic28/dockerignore-audit#v0.2.0 . --ignore unused-rule --fail-on warning
+npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --ignore unused-rule --fail-on warning
 ```
 
 Exit codes: `0` clean, `1` configured severity reached, `2` usage or runtime error.
@@ -63,9 +67,10 @@ Exit codes: `0` clean, `1` configured severity reached, `2` usage or runtime err
 ## GitHub Actions
 
 ```yaml
-- uses: Dtoxic28/dockerignore-audit@v0.2.0
+- uses: Dtoxic28/dockerignore-audit@v0.3.0
   with:
     context: .
+    compose: compose.yaml
     fail-on: warning
     ignore: unused-rule
 ```
@@ -74,7 +79,7 @@ The action runs directly from the tagged repository with no npm install or runti
 
 ## Context Root
 
-The positional argument is always the build-context root. Docker resolves `.dockerignore` and local `COPY`/`ADD` sources from that directory, not from the Dockerfile directory.
+In direct mode, the positional argument is the build-context root. Docker resolves `.dockerignore` and local `COPY`/`ADD` sources from that directory, not from the Dockerfile directory.
 
 ```sh
 # Equivalent context intent: docker build -f services/api/Dockerfile .
@@ -86,9 +91,12 @@ dockerignore-audit services/api
 
 When a nested Dockerfile has a nearby but inactive `.dockerignore`, the audit reports `inactive-adjacent-ignore-file` with the two valid fixes.
 
+With `--compose`, the positional argument is the Compose project working directory. Compose resolves merged files, environment interpolation, context paths, Dockerfiles, inline Dockerfiles, and local `additional_contexts`; identical build inputs are audited once. Repeat `--compose` in the same order as `docker compose -f`. Non-local contexts receive `compose-context-skipped` notices.
+
 ## Checks
 
 - Dockerfile-specific `<Dockerfile>.dockerignore` precedence over root `.dockerignore`.
+- Resolved Compose service contexts, overlays, inline Dockerfiles, and local additional contexts.
 - Secret-prone paths: env files, private keys, cloud credentials, Terraform state, kubeconfig, npm/Python credential files, Git history.
 - Included dependency trees such as `node_modules` and virtual environments.
 - Included file count, byte size, ignored savings, largest top-level directories.
@@ -102,7 +110,7 @@ Sensitive-file checks are name-based. File contents are never read for secret de
 ## API
 
 ```js
-import { auditContext, auditProject, explainPath } from 'dockerignore-audit';
+import { auditCompose, auditContext, auditProject, explainPath } from 'dockerignore-audit';
 
 const report = await auditContext({
   context: '.',
@@ -117,6 +125,7 @@ console.log(report.diagnostics);
 console.log(explainPath(report, '.env'));
 
 const everyBuild = await auditProject({ context: '.' });
+const composeBuilds = await auditCompose({ context: '.', composeFiles: ['compose.yaml'] });
 ```
 
 TypeScript declarations ship with the package. The public report includes context files, rule effects, aggregate statistics, and diagnostics. JSON always includes the complete file inventory; `--list` controls only human-readable output.
@@ -131,6 +140,7 @@ TypeScript declarations ship with the package. The public report includes contex
 - Normal `COPY`/`ADD` wildcards follow Go `filepath.Match`; recursive `**` source matching is enabled only with `COPY --parents`.
 - External `COPY --from=...` sources and remote `ADD` sources are outside context auditing.
 - `COPY --exclude` and advanced BuildKit forms produce conservative diagnostics rather than simulated execution.
+- Compose mode delegates YAML merging, interpolation, and path resolution to `docker compose config --format json`; remote contexts are reported but not downloaded.
 
 ## Development
 
@@ -139,12 +149,13 @@ npm ci
 npm run check
 ```
 
-Tests use Node's built-in test runner. Local development needs no Docker daemon, test framework, build step, or generated source. CI additionally compares representative reports with a real Docker BuildKit build.
+Tests use Node's built-in test runner. Local direct-mode development needs no Docker daemon, test framework, build step, or generated source. CI additionally checks Compose resolution and compares representative reports with a real Docker BuildKit build.
 
 ## References
 
 - [Docker build context and `.dockerignore`](https://docs.docker.com/build/building/context/)
 - [Dockerfile `COPY`](https://docs.docker.com/reference/dockerfile/#copy)
+- [Compose build specification](https://docs.docker.com/reference/compose-file/build/)
 - [Moby `.dockerignore` issue collection](https://github.com/moby/moby/issues/40319)
 - [Moby pattern matcher](https://github.com/moby/patternmatcher)
 

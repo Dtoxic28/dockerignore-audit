@@ -1,7 +1,7 @@
 {
   "name": "dockerignore-audit",
-  "version": "0.2.0",
-  "description": "Audit files eligible for Docker build contexts with current .dockerignore semantics.",
+  "version": "0.3.0",
+  "description": "Audit files eligible for Docker and Compose build contexts with current .dockerignore semantics.",
   "type": "module",
   "bin": {
     "dockerignore-audit": "src/cli.js"
@@ -20,7 +20,7 @@
     "LICENSE"
   ],
   "scripts": {
-    "lint": "node --check src/index.js && node --check src/matcher.js && node --check src/cli.js && node --check src/action.js && node --check test/index.test.js && node --check test/matcher.test.js && node --check test/docker-conformance.test.js",
+    "lint": "node --check src/index.js && node --check src/compose.js && node --check src/matcher.js && node --check src/cli.js && node --check src/action.js && node --check test/index.test.js && node --check test/matcher.test.js && node --check test/docker-conformance.test.js",
     "test": "node --test",
     "check": "npm run lint && npm test && npm pack --dry-run"
   },
