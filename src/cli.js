@@ -1,7 +1,11 @@
 #!/usr/bin/env node
 
+import { writeFile } from 'node:fs/promises';
+import path from 'node:path';
 import process from 'node:process';
+import { applyBaseline } from './baseline.js';
 import { auditCompose, auditProject, explainPath } from './index.js';
+import { toSarif } from './sarif.js';
 
 const LEVELS = { error: 0, warning: 1, info: 2 };
 
@@ -28,16 +32,23 @@ try {
     process.exit(0);
   }
 
+  const outputReports = options.baseline
+    ? await applyBaseline(reports, options.baseline)
+    : reports;
+  if (options.sarif) {
+    await writeFile(path.resolve(options.sarif), `${JSON.stringify(toSarif(outputReports), null, 2)}\n`);
+  }
+
   if (options.json) {
-    process.stdout.write(`${JSON.stringify(reports.map(publicReport), null, 2)}\n`);
+    process.stdout.write(`${JSON.stringify(outputReports.map(publicReport), null, 2)}\n`);
   } else if (options.github) {
-    process.stdout.write(formatGitHub(reports));
+    process.stdout.write(formatGitHub(outputReports));
   } else {
-    process.stdout.write(reports.map((report) => formatReport(report, options.list)).join('\n'));
+    process.stdout.write(outputReports.map((report) => formatReport(report, options.list)).join('\n'));
   }
 
   const threshold = LEVELS[options.failOn];
-  process.exitCode = reports.some((report) =>
+  process.exitCode = outputReports.some((report) =>
     report.diagnostics.some((diagnostic) => LEVELS[diagnostic.severity] <= threshold)) ? 1 : 0;
 } catch (error) {
   process.stderr.write(`dockerignore-audit: ${error.message}\n`);
@@ -57,6 +68,8 @@ function parseArguments(args) {
     failOn: 'error',
     maxBytes: undefined,
     maxFiles: undefined,
+    baseline: undefined,
+    sarif: undefined,
     help: false,
   };
   let contextSet = false;
@@ -74,6 +87,8 @@ function parseArguments(args) {
     else if (argument === '--fail-on') options.failOn = parseLevel(requiredValue(args, ++index, argument));
     else if (argument === '--max-bytes') options.maxBytes = parseBytes(requiredValue(args, ++index, argument));
     else if (argument === '--max-files') options.maxFiles = parseCount(requiredValue(args, ++index, argument), argument);
+    else if (argument === '--baseline') options.baseline = requiredValue(args, ++index, argument);
+    else if (argument === '--sarif') options.sarif = requiredValue(args, ++index, argument);
     else if (argument.startsWith('-')) throw new TypeError(`Unknown option: ${argument}`);
     else if (contextSet) throw new TypeError(`Unexpected argument: ${argument}`);
     else {
@@ -87,6 +102,7 @@ function parseArguments(args) {
     throw new TypeError('--compose and --dockerfile cannot be combined.');
   }
   if (options.explain && options.github) throw new TypeError('--explain and --github cannot be combined.');
+  if (options.explain && options.sarif) throw new TypeError('--explain and --sarif cannot be combined.');
   if (options.list && (options.json || options.github || options.explain)) {
     throw new TypeError('--list only supports human-readable audit output.');
   }
@@ -144,6 +160,7 @@ function formatReport(report, listMode) {
     `${target}  ignore=${ignore}`,
     `context: ${report.stats.includedFiles}/${report.stats.totalFiles} files, ${formatBytes(report.stats.includedBytes)}/${formatBytes(report.stats.totalBytes)} included`,
   ];
+  if (report.baselineSuppressed) lines.push(`baseline: ${report.baselineSuppressed} unchanged diagnostic(s) suppressed`);
 
   if (listMode) {
     const files = report.files.filter((file) =>
@@ -159,7 +176,7 @@ function formatReport(report, listMode) {
     const location = diagnostic.source
       ? ` ${diagnostic.source}:${diagnostic.line ?? 1}:${diagnostic.column ?? 1}`
       : diagnostic.path ? ` ${diagnostic.path}` : '';
-    lines.push(`${diagnostic.severity.toUpperCase()} ${diagnostic.code}${location} — ${diagnostic.message}`);
+    lines.push(`${diagnostic.severity.toUpperCase()} ${diagnostic.code}${location} - ${diagnostic.message}`);
   }
 
   const counts = Object.fromEntries(Object.keys(LEVELS).map((level) => [level, 0]));
@@ -246,6 +263,8 @@ Options:
       --fail-on LEVEL    Exit 1 on error, warning, or info (default: error)
       --max-bytes SIZE   Warn above included context size (default: 100MiB)
       --max-files COUNT  Warn above included file count (default: 10000)
+      --baseline FILE    Suppress diagnostics already present in a JSON baseline
+      --sarif FILE       Write SARIF 2.1.0 results to FILE
   -h, --help             Show help
 
 Exit codes: 0 clean, 1 threshold reached, 2 usage or runtime error.

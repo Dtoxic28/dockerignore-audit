@@ -11,12 +11,17 @@ Audit files eligible for Docker and Compose build contexts. Uses current `.docke
 ## Install
 
 ```sh
-npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 .
+# Tagged GitHub release; no registry package required
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 .
+
+# Local checkout
+npm ci
+node src/cli.js .
 ```
 
-Requires Node.js 22 or newer. Direct context audits do not require Docker; `--compose` requires Docker Compose.
+Requires Node.js 22 or newer. Direct context audits do not require Docker; `--compose` requires Docker Compose. The package is zero-runtime-dependency.
 
-The npm package is not published yet. The command above installs the tagged, zero-runtime-dependency release directly from this public GitHub repository.
+The release workflow publishes tagged versions to npm when the repository's npm publishing secret is configured.
 
 ## Usage
 
@@ -34,6 +39,8 @@ Options:
       --fail-on LEVEL    Exit 1 on error, warning, or info (default: error)
       --max-bytes SIZE   Warn above included context size (default: 100MiB)
       --max-files COUNT  Warn above included file count (default: 10000)
+      --baseline FILE    Suppress diagnostics already present in a JSON baseline
+      --sarif FILE       Write SARIF 2.1.0 results to FILE
   -h, --help             Show help
 ```
 
@@ -41,25 +48,32 @@ Examples:
 
 ```sh
 # Audit every discovered Dockerfile
-npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 .
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 .
 
 # Audit one build definition
-npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . -f docker/release.Dockerfile
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . -f docker/release.Dockerfile
 
 # Audit contexts resolved from Compose, including overlays
-npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --compose compose.yaml --compose compose.prod.yaml
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --compose compose.yaml --compose compose.prod.yaml
 
 # Explain inclusion or exclusion
-npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --explain .env
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --explain .env
 
 # CI output and warning threshold
-npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --json --fail-on warning
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --json --fail-on warning
 
 # Inspect exactly which paths are eligible or ignored
-npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --list included
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --list included
 
 # Suppress a known diagnostic without hiding other warnings
-npx --yes github:Dtoxic28/dockerignore-audit#v0.3.0 . --ignore unused-rule --fail-on warning
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --ignore unused-rule --fail-on warning
+
+# Create a baseline, then fail only on new diagnostics
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --json > .dockerignore-audit-baseline.json || true
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --baseline .dockerignore-audit-baseline.json --fail-on warning
+
+# Emit SARIF for code-scanning or artifact upload
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --sarif dockerignore-audit.sarif --fail-on warning
 ```
 
 Exit codes: `0` clean, `1` configured severity reached, `2` usage or runtime error.
@@ -67,15 +81,16 @@ Exit codes: `0` clean, `1` configured severity reached, `2` usage or runtime err
 ## GitHub Actions
 
 ```yaml
-- uses: Dtoxic28/dockerignore-audit@v0.3.0
+- uses: Dtoxic28/dockerignore-audit@v0.4.0
   with:
     context: .
     compose: compose.yaml
     fail-on: warning
     ignore: unused-rule
+    sarif: dockerignore-audit.sarif
 ```
 
-The action runs directly from the tagged repository with no npm install or runtime dependencies. The CLI's `--github` option emits the same native error, warning, and notice annotations. Pin the full release commit instead of the mutable tag when your threat model requires immutable third-party code.
+The action runs directly from the tagged repository with no npm install or runtime dependencies. `baseline` accepts a previous `--json` report; unchanged diagnostics are suppressed before threshold evaluation. `sarif` writes a SARIF 2.1.0 file while `--github` continues emitting native annotations. Pin the full release commit instead of the mutable tag when your threat model requires immutable third-party code.
 
 ## Context Root
 
@@ -103,14 +118,14 @@ With `--compose`, the positional argument is the Compose project working directo
 - Rules that never change a path in the current context.
 - Inactive nested `.dockerignore` files beside Dockerfiles using a different context root.
 - Missing, fully ignored, partially ignored, broad, dynamic, heredoc, and `--parents` local `COPY`/`ADD` sources.
-- Human-readable inventory, stable JSON, GitHub annotations, deterministic diagnostics, suppressions, and CI failure thresholds.
+- Human-readable inventory, stable JSON, SARIF 2.1.0, GitHub annotations, deterministic diagnostics, baselines, suppressions, and CI failure thresholds.
 
 Sensitive-file checks are name-based. File contents are never read for secret detection.
 
 ## API
 
 ```js
-import { auditCompose, auditContext, auditProject, explainPath } from 'dockerignore-audit';
+import { auditCompose, auditContext, auditProject, explainPath, toSarif } from 'dockerignore-audit';
 
 const report = await auditContext({
   context: '.',
@@ -123,6 +138,7 @@ const report = await auditContext({
 console.log(report.stats);
 console.log(report.diagnostics);
 console.log(explainPath(report, '.env'));
+console.log(JSON.stringify(toSarif([report])));
 
 const everyBuild = await auditProject({ context: '.' });
 const composeBuilds = await auditCompose({ context: '.', composeFiles: ['compose.yaml'] });
@@ -141,6 +157,8 @@ TypeScript declarations ship with the package. The public report includes contex
 - External `COPY --from=...` sources and remote `ADD` sources are outside context auditing.
 - `COPY --exclude` and advanced BuildKit forms produce conservative diagnostics rather than simulated execution.
 - Compose mode delegates YAML merging, interpolation, and path resolution to `docker compose config --format json`; remote contexts are reported but not downloaded.
+- Baselines compare stable report identity, diagnostic code, location, and message; changed diagnostics remain visible.
+- SARIF output uses stable rule IDs, relative artifact paths, regions, and deterministic fingerprints.
 
 ## Development
 

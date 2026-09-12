@@ -26,6 +26,12 @@ inputs:
   ignore:
     description: Comma or whitespace-separated diagnostic codes to suppress
     required: false
+  baseline:
+    description: JSON audit report used to suppress unchanged diagnostics
+    required: false
+  sarif:
+    description: Output SARIF 2.1.0 file path
+    required: false
 runs:
   using: node24
   main: src/action.js

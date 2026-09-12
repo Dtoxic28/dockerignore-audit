@@ -303,6 +303,41 @@ test('CLI emits JSON and applies failure thresholds', async (context) => {
   assert.match(conflictingRun.stderr, /cannot be combined/);
 });
 
+test('writes SARIF and suppresses unchanged baseline diagnostics', async (context) => {
+  const root = await fixture(context, {
+    Dockerfile: 'FROM scratch\n',
+    '.dockerignore': 'unused\nignored.txt\n',
+    'ignored.txt': 'ignored\n',
+  });
+  const outputDirectory = await mkdtemp(path.join(tmpdir(), 'dockerignore-audit-output-'));
+  context.after(() => rm(outputDirectory, { recursive: true, force: true }));
+  const baseline = path.join(outputDirectory, 'baseline.json');
+  const sarif = path.join(outputDirectory, 'results.sarif');
+
+  const initial = spawnSync(process.execPath, [cli, root, '--json', '--fail-on', 'warning'], {
+    cwd: repository,
+    encoding: 'utf8',
+  });
+  assert.equal(initial.status, 1, initial.stderr);
+  await writeFile(baseline, initial.stdout);
+
+  const baselineRun = spawnSync(process.execPath, [
+    cli, root, '--json', '--baseline', baseline, '--fail-on', 'warning',
+  ], { cwd: repository, encoding: 'utf8' });
+  assert.equal(baselineRun.status, 0, baselineRun.stderr);
+  const baselineReport = JSON.parse(baselineRun.stdout)[0];
+  assert.deepEqual(baselineReport.diagnostics, []);
+  assert.equal(baselineReport.baselineSuppressed, 1);
+
+  const sarifRun = spawnSync(process.execPath, [
+    cli, root, '--sarif', sarif, '--fail-on', 'warning',
+  ], { cwd: repository, encoding: 'utf8' });
+  assert.equal(sarifRun.status, 1, sarifRun.stderr);
+  const sarifReport = JSON.parse(await readFile(sarif, 'utf8'));
+  assert.equal(sarifReport.version, '2.1.0');
+  assert.equal(sarifReport.runs[0].results[0].ruleId, 'unused-rule');
+});
+
 test('GitHub Action forwards inputs and exit status', async (context) => {
   const root = await fixture(context, {
     Dockerfile: 'FROM scratch\n',
@@ -312,6 +347,7 @@ test('GitHub Action forwards inputs and exit status', async (context) => {
     ...process.env,
     INPUT_CONTEXT: root,
     INPUT_FAIL_ON: 'warning',
+    INPUT_SARIF: path.join(root, 'action.sarif'),
   };
 
   const failing = spawnSync(process.execPath, [action], {
@@ -321,6 +357,8 @@ test('GitHub Action forwards inputs and exit status', async (context) => {
   });
   assert.equal(failing.status, 1, failing.stderr);
   assert.match(failing.stdout, /dockerignore-audit\/unused-rule/);
+  const actionSarif = JSON.parse(await readFile(path.join(root, 'action.sarif'), 'utf8'));
+  assert.equal(actionSarif.version, '2.1.0');
 
   const passing = spawnSync(process.execPath, [action], {
     cwd: root,
@@ -341,6 +379,13 @@ test('rejects explanations outside the context', async (context) => {
     const otherDrive = `${root[0].toUpperCase() === 'Z' ? 'Y' : 'Z'}:\\outside\\secret.env`;
     assert.throws(() => explainPath(report, otherDrive), /outside/);
   }
+});
+
+test('release workflow publishes only tagged packages', async () => {
+  const workflow = await readFile(path.join(repository, '.github', 'workflows', 'release.yml'), 'utf8');
+  assert.ok(workflow.includes("tags: ['v*.*.*']"));
+  assert.ok(workflow.includes('npm publish --access public'));
+  assert.ok(workflow.includes('NODE_AUTH_TOKEN: ${{ secrets.NPM_TOKEN }}'));
 });
 
 test('CI workflow keeps valid matrix interpolation', async () => {

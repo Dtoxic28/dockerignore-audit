@@ -48,6 +48,7 @@ export interface AuditReport {
   rules: IgnoreRule[];
   diagnostics: Diagnostic[];
   files: ContextFile[];
+  baselineSuppressed?: number;
 }
 
 export interface AuditOptions {
@@ -74,3 +75,4 @@ export function auditContext(options?: AuditOptions): Promise<AuditReport>;
 export function auditCompose(options: ComposeAuditOptions): Promise<AuditReport[]>;
 export function discoverDockerfiles(context?: string): Promise<string[]>;
 export function explainPath(report: AuditReport, pathname: string): PathExplanation;
+export function toSarif(reports: AuditReport[]): Record<string, unknown>;

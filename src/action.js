@@ -11,6 +11,8 @@ for (const [name, option] of [
   ['fail-on', '--fail-on'],
   ['max-bytes', '--max-bytes'],
   ['max-files', '--max-files'],
+  ['baseline', '--baseline'],
+  ['sarif', '--sarif'],
 ]) {
   const value = input(name);
   if (value) args.push(option, value);

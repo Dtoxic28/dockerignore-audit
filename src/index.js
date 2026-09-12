@@ -3,6 +3,8 @@ import path from 'node:path';
 import { inspectCompose } from './compose.js';
 import { compileDockerIgnore, evaluateIgnoreRules, matchFilePattern } from './matcher.js';
 
+export { toSarif } from './sarif.js';
+
 const INTERNAL = Symbol('dockerignore-audit');
 const DEFAULT_MAX_BYTES = 100 * 1024 * 1024;
 const DEFAULT_MAX_FILES = 10_000;
