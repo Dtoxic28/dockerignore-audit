@@ -11,7 +11,7 @@ export async function inspectCompose(projectDirectory, composeFiles) {
   if (!Array.isArray(composeFiles) || composeFiles.length === 0) {
     throw new TypeError('composeFiles must contain at least one Compose file.');
   }
-  if (composeFiles.some((file) => typeof file !== 'string' || !file.trim() || file === '-')) {
+  if ([...composeFiles].some((file) => typeof file !== 'string' || !file.trim() || file === '-' || file.includes('\0'))) {
     throw new TypeError('composeFiles must contain local file paths.');
   }
 
@@ -26,13 +26,18 @@ export async function inspectCompose(projectDirectory, composeFiles) {
       cwd: projectDirectory,
       encoding: 'utf8',
       maxBuffer: 16 * 1024 * 1024,
+      timeout: 30_000,
+      windowsHide: true,
     }));
   } catch (error) {
     if (error.code === 'ENOENT') {
-      throw new Error('Docker Compose is required for --compose.');
+      throw new Error('Docker Compose is required for --compose.', { cause: error });
     }
-    const detail = String(error.stderr || error.stdout || error.message).trim();
-    throw new Error(`docker compose config failed: ${detail}`);
+    if (error.killed && error.signal === 'SIGTERM' && error.code == null) {
+      throw new Error('docker compose config timed out after 30000ms.', { cause: error });
+    }
+    const detail = [error.stderr, error.stdout, error.message].map((value) => String(value ?? '').trim()).find(Boolean);
+    throw new Error(`docker compose config failed: ${detail}`, { cause: error });
   }
 
   let model;
@@ -40,6 +45,10 @@ export async function inspectCompose(projectDirectory, composeFiles) {
     model = JSON.parse(stdout);
   } catch (error) {
     throw new Error('docker compose config returned invalid JSON.', { cause: error });
+  }
+
+  if (!model || typeof model !== 'object' || Array.isArray(model)) {
+    throw new TypeError('docker compose config must return a JSON object.');
   }
 
   return {

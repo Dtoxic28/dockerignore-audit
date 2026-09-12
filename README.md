@@ -19,7 +19,7 @@ npm ci
 node src/cli.js .
 ```
 
-Requires Node.js 22 or newer. Direct context audits do not require Docker; `--compose` requires Docker Compose. The package is zero-runtime-dependency.
+Requires Node.js 22.1 or newer. Direct context audits do not require Docker; `--compose` requires Docker Compose. The package is zero-runtime-dependency.
 
 The release workflow publishes tagged versions to npm when the repository's npm publishing secret is configured.
 
@@ -167,6 +167,21 @@ npm ci
 npm run check
 npm run test:docker
 ```
+
+Focused validation commands:
+
+```sh
+npm run test:differential # 10,025 seeded cases against saved Go/Moby outcomes
+npm run test:compose      # subprocess failures, timeout, malformed config
+npm run test:sarif        # OASIS schema, URI formats, real audit reports
+npm run test:oracle       # requires Go; rechecks saved outcomes independently
+```
+
+Normal tests run offline after `npm ci`; Go and Docker are not required.
+Schema validators are development-only dependencies; published CLI and Action remain
+zero-runtime-dependency. CI covers Windows and Linux, including native Go oracle checks.
+Fixture provenance and regeneration commands are in `test/fixtures/README.md`.
+Compose config resolution has a 30-second timeout and a 16 MiB output limit.
 
 Tests use Node's built-in test runner. Local direct-mode development needs no Docker daemon, test framework, build step, or generated source. CI additionally checks Compose resolution and compares representative reports with a real Docker BuildKit build.
 

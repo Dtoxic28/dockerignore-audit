@@ -21,13 +21,17 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "lint": "node --check src/index.js && node --check src/compose.js && node --check src/matcher.js && node --check src/cli.js && node --check src/action.js && node --check test/index.test.js && node --check test/matcher.test.js && node --check test/matcher.fuzz.test.js && node --check test/docker-conformance.test.js && node --check scripts/docker-conformance.js && node --check test/sarif.test.js",
+    "lint": "node --check src/index.js && node --check src/compose.js && node --check src/matcher.js && node --check src/cli.js && node --check src/action.js && node --check src/baseline.js && node --check src/sarif.js && node --check test/index.test.js && node --check test/matcher.test.js && node --check test/matcher.fuzz.test.js && node --check test/compose.test.js && node --check test/docker-conformance.test.js && node --check test/sarif.test.js && node --check scripts/docker-conformance.js && node --check scripts/matcher-cases.js && node --check scripts/matcher-oracle.js",
     "test": "node --test",
     "test:docker": "node scripts/docker-conformance.js",
-    "check": "npm run lint && npm test && npm pack --dry-run"
+    "check": "npm run lint && npm test && npm pack --dry-run",
+    "test:differential": "node --test test/matcher.fuzz.test.js",
+    "test:oracle": "node scripts/matcher-oracle.js",
+    "test:sarif": "node --test test/sarif.test.js",
+    "test:compose": "node --test test/compose.test.js"
   },
   "engines": {
-    "node": ">=22"
+    "node": ">=22.1"
   },
   "repository": {
     "type": "git",
@@ -50,5 +54,9 @@
   "sideEffects": false,
   "publishConfig": {
     "access": "public"
+  },
+  "devDependencies": {
+    "ajv-draft-04": "1.0.0",
+    "ajv-formats": "3.0.1"
   }
 }

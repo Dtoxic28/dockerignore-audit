@@ -116,11 +116,16 @@ function parseRule(raw) {
   let pattern = raw.trim();
   if (!pattern) return null;
 
-  const negative = pattern.startsWith('!');
+  let negative = pattern.startsWith('!');
   if (negative) pattern = pattern.slice(1).trim();
   if (!pattern) throw new SyntaxError('Illegal exclusion pattern: !.');
 
   pattern = cleanPattern(pattern);
+  if (!negative && pattern.startsWith('!')) {
+    negative = true;
+    pattern = pattern.slice(1);
+    if (!pattern) throw new SyntaxError('Illegal exclusion pattern: !.');
+  }
   if (pattern === '.') return null;
   validatePattern(pattern);
   return { pattern, negative };
@@ -135,7 +140,8 @@ function cleanPattern(pattern) {
 }
 
 function cleanTarget(pathname) {
-  let target = String(pathname).replaceAll('\\', '/');
+  let target = String(pathname);
+  if (WINDOWS) target = target.replaceAll('\\', '/');
   target = path.posix.normalize(target || '.');
   if (target.length > 1) target = target.replace(/\/+$/, '');
   return target.startsWith('./') ? target.slice(2) : target;
@@ -153,6 +159,7 @@ function matchesOrParent(matchesPath, pathname) {
 function compilePattern(pattern) {
   let expression = '^';
   let type = 'exact';
+  let inClass = false;
 
   for (let index = 0; index < pattern.length; index += 1) {
     const character = pattern[index];
@@ -165,11 +172,11 @@ function compilePattern(pattern) {
         if (index + 1 === pattern.length) {
           if (type === 'exact') type = 'prefix';
           else {
-            expression += '.*';
+            expression += '[^\\n]*';
             type = 'regexp';
           }
         } else {
-          expression += '(?:.*/)?';
+          expression += '(?:[^\\n]*/)?';
           type = 'regexp';
         }
         if (startsPattern) type = 'suffix';
@@ -186,7 +193,9 @@ function compilePattern(pattern) {
       index = next.end - 1;
       type = 'regexp';
     } else if (character === '[' || character === ']') {
-      expression += character;
+      // RE2 accepts a literal closing bracket; JS Unicode regexes require escaping it.
+      expression += character === ']' && !inClass ? '\\]' : character;
+      inClass = character === '[';
       type = 'regexp';
     } else {
       expression += REGEXP_SPECIAL.test(character) ? `\\${character}` : character;
@@ -204,7 +213,7 @@ function compilePattern(pattern) {
       || (suffix.startsWith('/') && pathname === suffix.slice(1));
   }
 
-  const regexp = new RegExp(`${expression}$`, 'u');
+  const regexp = new RegExp(`${expression}(?![\\s\\S])`, 'u');
   return (pathname) => regexp.test(pathname);
 }
 

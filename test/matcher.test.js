@@ -41,3 +41,26 @@ test('matches COPY globs without shell extensions', () => {
   assert.equal(matchFilePattern('**/*.js', 'src/deep/app.js', { globstar: true }), true);
   assert.throws(() => matchFilePattern('[x-', 'x'), /Invalid file pattern/);
 });
+
+
+test('keeps Moby regex boundaries and literal closing brackets', () => {
+  for (const [pattern, pathname, expected] of [
+    ['a]', 'a]', true], ['*.txt', 'a.txt\n', false],
+    ['**/*.txt', 'dir\r/a.txt', true], ['**/*.txt', 'dir\u2028/a.txt', true],
+    ['**/*.txt', 'dir\n/a.txt', false],
+  ]) {
+    const compiled = compileDockerIgnore(pattern, '.dockerignore');
+    assert.deepEqual(compiled.diagnostics, []);
+    assert.equal(compiled.matcher.ignores(pathname), expected, JSON.stringify({ pattern, pathname }));
+  }
+});
+
+test('uses native backslash semantics without losing POSIX filename characters', () => {
+  const pattern = String.raw`a\\`;
+  const pathname = process.platform === 'win32' ? 'a' : 'a\\';
+  const compiled = compileDockerIgnore(pattern, '.dockerignore');
+  assert.deepEqual(compiled.diagnostics, []);
+  assert.equal(compiled.matcher.ignores(pathname), true);
+  const escaped = compileDockerIgnore(String.raw`\!name`, '.dockerignore');
+  assert.equal(escaped.matcher.ignores('!name'), process.platform !== 'win32');
+});

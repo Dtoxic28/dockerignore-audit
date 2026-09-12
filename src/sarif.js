@@ -2,7 +2,7 @@ import { createHash } from 'node:crypto';
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
 
-const SARIF_SCHEMA = 'https://json.schemastore.org/sarif-2.1.0.json';
+const SARIF_SCHEMA = 'https://docs.oasis-open.org/sarif/sarif/v2.1.0/errata01/os/schemas/sarif-schema-2.1.0.json';
 const REPOSITORY = 'https://github.com/Dtoxic28/dockerignore-audit';
 
 export function toSarif(reports) {
@@ -77,20 +77,22 @@ function diagnosticLocation(report, diagnostic) {
 
 function relativeArtifactPath(context, value) {
   const raw = String(value).replaceAll('\\', '/');
-  if (!isAbsoluteArtifactPath(value, raw)) return encodeUriPath(raw.replace(/^\.\//, ''));
-
-  const contextText = String(context).replaceAll('\\', '/');
-  const windows = isWindowsAbsolute(raw) || isWindowsAbsolute(contextText) || raw.startsWith('//');
-  const pathApi = windows ? path.win32 : path;
-  const relative = pathApi.relative(pathApi.resolve(context), pathApi.resolve(value)).replaceAll('\\', '/');
-  if (relative && relative !== '..' && !relative.startsWith('../') && !relative.startsWith('/')) {
-    return encodeUriPath(relative);
+  if (!path.posix.isAbsolute(raw) && !isWindowsAbsolute(raw)) {
+    return encodeUriPath(path.posix.normalize(raw));
   }
-  return windows ? windowsFileUri(raw) : pathToFileURL(path.resolve(value)).href;
-}
 
-function isAbsoluteArtifactPath(value, raw) {
-  return path.isAbsolute(raw) || isWindowsAbsolute(raw) || raw.startsWith('/');
+  const root = String(context).replaceAll('\\', '/');
+  const windows = isWindowsAbsolute(raw);
+  const pathApi = windows ? path.win32 : path.posix;
+  // Resolve using the input's syntax, never the machine producing the SARIF.
+  if (windows === isWindowsAbsolute(root) && pathApi.isAbsolute(root)) {
+    const relative = pathApi.relative(root, raw).replaceAll('\\', '/');
+    if (relative && relative !== '..' && !relative.startsWith('../') && !pathApi.isAbsolute(relative)) {
+      return encodeUriPath(relative);
+    }
+  }
+
+  return pathToFileURL(pathApi.normalize(raw), { windows }).href;
 }
 
 function isWindowsAbsolute(value) {
@@ -99,18 +101,6 @@ function isWindowsAbsolute(value) {
 
 function encodeUriPath(value) {
   return value.split('/').map((segment) => encodeURIComponent(segment)).join('/');
-}
-
-function windowsFileUri(value) {
-  const raw = value.replaceAll('\\', '/');
-  if (isWindowsAbsolute(raw) && /^[A-Za-z]:\//.test(raw)) {
-    return `file:///${raw.slice(0, 2)}${encodeUriPath(raw.slice(2))}`;
-  }
-  if (raw.startsWith('//')) {
-    const [, host, ...segments] = raw.split('/');
-    return `file://${host}/${segments.map((segment) => encodeURIComponent(segment)).join('/')}`;
-  }
-  return `file://${encodeUriPath(raw)}`;
 }
 
 function fingerprint(report, diagnostic) {
