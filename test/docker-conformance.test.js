@@ -5,10 +5,11 @@ import { tmpdir } from 'node:os';
 import path from 'node:path';
 import test from 'node:test';
 import { auditCompose, auditContext } from '../src/index.js';
+import { composeBuilds } from '../src/compose.js';
 
 const enabled = process.env.DOCKERIGNORE_AUDIT_DOCKER_TEST === '1';
 
-test('matches Docker BuildKit context selection', { skip: !enabled }, async (context) => {
+test('matches Docker BuildKit context selection', async (context) => {
   const root = await fixture(context, {
     Dockerfile: 'FROM scratch\nCOPY . /context\n',
     '.dockerignore': 'drop+prod.txt\ndocs\n!docs/README.md\n**/*.tmp\n',
@@ -19,10 +20,16 @@ test('matches Docker BuildKit context selection', { skip: !enabled }, async (con
     'keep.txt': 'included\n',
   });
 
-  await assertMatchesDocker(context, root, 'Dockerfile');
+  const report = await auditContext({ context: root, dockerfile: 'Dockerfile' });
+  assert.deepEqual(includedContextFiles(report, 'Dockerfile'), [
+    'docs/README.md',
+    'dropprod.txt',
+    'keep.txt',
+  ]);
+  if (enabled) await assertMatchesDocker(context, root, 'Dockerfile');
 });
 
-test('matches Dockerfile-specific ignore precedence', { skip: !enabled }, async (context) => {
+test('matches Dockerfile-specific ignore precedence', async (context) => {
   const root = await fixture(context, {
     '.dockerignore': 'root-hidden.txt\n',
     'docker/build.Dockerfile': 'FROM scratch\nCOPY . /context\n',
@@ -32,10 +39,16 @@ test('matches Dockerfile-specific ignore precedence', { skip: !enabled }, async 
     'keep.txt': 'included\n',
   });
 
-  await assertMatchesDocker(context, root, 'docker/build.Dockerfile');
+  const report = await auditContext({ context: root, dockerfile: 'docker/build.Dockerfile' });
+  assert.equal(report.ignoreFile, 'docker/build.Dockerfile.dockerignore');
+  assert.deepEqual(includedContextFiles(report, 'docker/build.Dockerfile'), [
+    'keep.txt',
+    'root-hidden.txt',
+  ]);
+  if (enabled) await assertMatchesDocker(context, root, 'docker/build.Dockerfile');
 });
 
-test('resolves Docker Compose build contexts', { skip: !enabled }, async (context) => {
+test('resolves Docker Compose build contexts', async (context) => {
   const root = await fixture(context, {
     'compose.yaml': [
       'services:',
@@ -51,12 +64,27 @@ test('resolves Docker Compose build contexts', { skip: !enabled }, async (contex
     'services/api/app.txt': 'included\n',
   });
 
-  const reports = await auditCompose({ context: root, composeFiles: ['compose.yaml'] });
-  assert.equal(reports.length, 1);
-  assert.deepEqual(reports[0].composeTargets, ['api']);
-  assert.equal(reports[0].dockerfile, 'Containerfile');
-  assert.ok(reports[0].diagnostics.some(({ code }) => code === 'exposed-env-file'));
+  const builds = composeBuilds({
+    services: { api: { build: { context: './services/api', dockerfile: 'Containerfile' } } },
+  }, root);
+  assert.equal(builds.builds.length, 1);
+  assert.deepEqual(builds.builds[0].composeTargets, ['api']);
+  if (enabled) {
+    const reports = await auditCompose({ context: root, composeFiles: ['compose.yaml'] });
+    assert.equal(reports.length, 1);
+    assert.deepEqual(reports[0].composeTargets, ['api']);
+    assert.equal(reports[0].dockerfile, 'Containerfile');
+    assert.ok(reports[0].diagnostics.some(({ code }) => code === 'exposed-env-file'));
+  }
 });
+
+function includedContextFiles(report, dockerfile) {
+  const metadata = new Set([dockerfile, report.ignoreFile].filter(Boolean));
+  return report.files
+    .filter((file) => file.included && !metadata.has(file.path) && !file.path.endsWith('.dockerignore'))
+    .map((file) => file.path)
+    .sort();
+}
 
 async function assertMatchesDocker(context, root, dockerfile) {
   const temporary = await mkdtemp(path.join(tmpdir(), 'dockerignore-audit-output-'));
