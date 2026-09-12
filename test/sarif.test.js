@@ -56,3 +56,33 @@ test('deduplicates rules and normalizes absolute artifact paths', () => {
     '.dockerignore',
   );
 });
+
+
+test('encodes SARIF path characters and handles Windows absolute paths', () => {
+  const sarif = toSarif([{
+    context: 'C:/repo with spaces',
+    diagnostics: [
+      {
+        code: 'path-test',
+        severity: 'warning',
+        message: 'path',
+        source: 'C:/repo with spaces/dir with spaces/file#?.txt',
+      },
+      {
+        code: 'outside-test',
+        severity: 'warning',
+        message: 'outside',
+        source: 'C:/other/secret.txt',
+      },
+    ],
+  }]);
+  const results = sarif.runs[0].results;
+  assert.equal(
+    results.find(({ ruleId }) => ruleId === 'path-test').locations[0].physicalLocation.artifactLocation.uri,
+    'dir%20with%20spaces/file%23%3F.txt',
+  );
+  assert.equal(
+    results.find(({ ruleId }) => ruleId === 'outside-test').locations[0].physicalLocation.artifactLocation.uri,
+    'file:///C:/other/secret.txt',
+  );
+});

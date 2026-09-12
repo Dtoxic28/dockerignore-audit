@@ -90,12 +90,17 @@ export function composeBuilds(model, baseDirectory = '.') {
 }
 
 function addBuild(grouped, skipped, baseDirectory, build) {
-  if (typeof build.context !== 'string' || !build.context.trim() || isRemoteContext(build.context)) {
+  if (typeof build.context !== 'string') {
+    skipped.push({ target: build.target, context: build.context });
+    return;
+  }
+  const contextInput = build.context.trim();
+  if (!contextInput || isRemoteContext(contextInput)) {
     skipped.push({ target: build.target, context: build.context });
     return;
   }
 
-  const context = path.resolve(baseDirectory, build.context);
+  const context = path.resolve(baseDirectory, contextInput);
   const dockerfile = build.dockerfile == null || path.isAbsolute(build.dockerfile)
     ? build.dockerfile
     : path.resolve(context, build.dockerfile);

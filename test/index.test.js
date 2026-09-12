@@ -107,6 +107,54 @@ test('discovers Dockerfiles below five directory levels', async (context) => {
   );
 });
 
+test('handles Compose whitespace, malformed additional contexts, and inline dedupe', () => {
+  const base = path.resolve('compose-project');
+  const { builds, skipped } = composeBuilds({
+    services: {
+      inlineA: { build: { context: ' ./app ', dockerfile_inline: 'FROM scratch\n' } },
+      inlineB: { build: { context: './app', dockerfile_inline: 'FROM alpine\n' } },
+      remote: { build: { context: '  HTTPS://example.test/repo.git  ' } },
+      contexts: {
+        build: {
+          context: '.',
+          additional_contexts: ['shared=../shared=with-equals', 'bad', '=missing-name', 'empty='],
+        },
+      },
+    },
+  }, base);
+
+  assert.deepEqual(builds, [
+    {
+      context: path.resolve(base),
+      dockerfile: path.resolve(base, 'Dockerfile'),
+      dockerfileText: null,
+      composeTargets: ['contexts'],
+    },
+    {
+      context: path.resolve(base, '../shared=with-equals'),
+      dockerfile: null,
+      dockerfileText: null,
+      composeTargets: ['contexts:shared'],
+    },
+    {
+      context: path.resolve(base, 'app'),
+      dockerfile: null,
+      dockerfileText: 'FROM scratch\n',
+      composeTargets: ['inlineA'],
+    },
+    {
+      context: path.resolve(base, 'app'),
+      dockerfile: null,
+      dockerfileText: 'FROM alpine\n',
+      composeTargets: ['inlineB'],
+    },
+  ]);
+  assert.deepEqual(skipped, [
+    { target: 'contexts:empty', context: '' },
+    { target: 'remote', context: '  HTTPS://example.test/repo.git  ' },
+  ]);
+});
+
 test('resolves and deduplicates Docker Compose build contexts', () => {
   const base = path.resolve('compose-project');
   const { builds, skipped } = composeBuilds({

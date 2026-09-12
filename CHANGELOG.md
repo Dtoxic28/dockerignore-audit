@@ -5,6 +5,7 @@
 - Validate public size/file limits and reject unsafe CLI byte values.
 - Add an explicit Docker conformance command with local skip and CI-required modes.
 - Report unterminated quoted COPY/ADD sources as Dockerfile syntax errors.
+- Add deterministic matcher fuzz coverage, Compose edge-case coverage, and portable SARIF URI paths.
 
 ## 0.4.0 — 2026-09-12
 

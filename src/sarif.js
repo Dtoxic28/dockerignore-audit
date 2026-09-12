@@ -1,5 +1,6 @@
 import { createHash } from 'node:crypto';
 import path from 'node:path';
+import { pathToFileURL } from 'node:url';
 
 const SARIF_SCHEMA = 'https://json.schemastore.org/sarif-2.1.0.json';
 const REPOSITORY = 'https://github.com/Dtoxic28/dockerignore-audit';
@@ -76,11 +77,40 @@ function diagnosticLocation(report, diagnostic) {
 
 function relativeArtifactPath(context, value) {
   const raw = String(value).replaceAll('\\', '/');
-  if (!path.isAbsolute(value) && !/^[A-Za-z]:\//.test(raw)) {
-    return raw.replace(/^\.\//, '');
+  if (!isAbsoluteArtifactPath(value, raw)) return encodeUriPath(raw.replace(/^\.\//, ''));
+
+  const contextText = String(context).replaceAll('\\', '/');
+  const windows = isWindowsAbsolute(raw) || isWindowsAbsolute(contextText) || raw.startsWith('//');
+  const pathApi = windows ? path.win32 : path;
+  const relative = pathApi.relative(pathApi.resolve(context), pathApi.resolve(value)).replaceAll('\\', '/');
+  if (relative && relative !== '..' && !relative.startsWith('../') && !relative.startsWith('/')) {
+    return encodeUriPath(relative);
   }
-  const relative = path.relative(context, path.resolve(value)).replaceAll('\\', '/');
-  return relative && relative !== '..' && !relative.startsWith('../') ? relative : raw;
+  return windows ? windowsFileUri(raw) : pathToFileURL(path.resolve(value)).href;
+}
+
+function isAbsoluteArtifactPath(value, raw) {
+  return path.isAbsolute(raw) || isWindowsAbsolute(raw) || raw.startsWith('/');
+}
+
+function isWindowsAbsolute(value) {
+  return /^[A-Za-z]:\//.test(value) || value.startsWith('//');
+}
+
+function encodeUriPath(value) {
+  return value.split('/').map((segment) => encodeURIComponent(segment)).join('/');
+}
+
+function windowsFileUri(value) {
+  const raw = value.replaceAll('\\', '/');
+  if (isWindowsAbsolute(raw) && /^[A-Za-z]:\//.test(raw)) {
+    return `file:///${raw.slice(0, 2)}${encodeUriPath(raw.slice(2))}`;
+  }
+  if (raw.startsWith('//')) {
+    const [, host, ...segments] = raw.split('/');
+    return `file://${host}/${segments.map((segment) => encodeURIComponent(segment)).join('/')}`;
+  }
+  return `file://${encodeUriPath(raw)}`;
 }
 
 function fingerprint(report, diagnostic) {
