@@ -135,7 +135,9 @@ function parseDiagnosticCode(value) {
 
 function parseCount(value, option) {
   const number = Number(value);
-  if (!Number.isSafeInteger(number) || number < 0) throw new TypeError(`${option} must be a non-negative integer.`);
+  if (!value.trim() || !Number.isSafeInteger(number) || number < 0) {
+    throw new TypeError(`${option} must be a non-negative integer.`);
+  }
   return number;
 }
 
@@ -143,7 +145,9 @@ function parseBytes(value) {
   const match = value.match(/^(\d+(?:\.\d+)?)\s*(B|KB|KIB|MB|MIB|GB|GIB)?$/i);
   if (!match) throw new TypeError('--max-bytes must look like 500KB, 20MiB, or 1GB.');
   const units = { B: 1, KB: 1_000, KIB: 1024, MB: 1_000_000, MIB: 1024 ** 2, GB: 1_000_000_000, GIB: 1024 ** 3 };
-  return Math.round(Number(match[1]) * units[(match[2] ?? 'B').toUpperCase()]);
+  const bytes = Math.round(Number(match[1]) * units[(match[2] ?? 'B').toUpperCase()]);
+  if (!Number.isSafeInteger(bytes)) throw new TypeError('--max-bytes must fit a safe integer.');
+  return bytes;
 }
 
 function publicReport(report) {

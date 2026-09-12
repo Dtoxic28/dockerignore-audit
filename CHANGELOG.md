@@ -1,5 +1,10 @@
 # Changelog
 
+## 0.4.1 - 2026-09-12
+
+- Validate public size/file limits and reject unsafe CLI byte values.
+- Add an explicit Docker conformance command with local skip and CI-required modes.
+
 ## 0.4.0 — 2026-09-12
 
 - Added deterministic SARIF 2.1.0 output with locations and fingerprints.

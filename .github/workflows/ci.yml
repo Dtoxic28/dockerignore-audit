@@ -36,6 +36,6 @@ jobs:
           cache: npm
       - uses: docker/setup-buildx-action@v4
       - run: npm ci
-      - run: npm test -- test/docker-conformance.test.js
+      - run: npm run test:docker
         env:
-          DOCKERIGNORE_AUDIT_DOCKER_TEST: "1"
+          DOCKERIGNORE_AUDIT_DOCKER_TEST_REQUIRED: "1"

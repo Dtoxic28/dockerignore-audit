@@ -1,5 +1,6 @@
 import assert from 'node:assert/strict';
 import test from 'node:test';
+import path from 'node:path';
 import { toSarif } from '../src/sarif.js';
 
 test('emits deterministic SARIF diagnostics with locations and fingerprints', () => {
@@ -35,4 +36,23 @@ test('emits deterministic SARIF diagnostics with locations and fingerprints', ()
   assert.equal(sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri, '.env');
   assert.equal(sarif.runs[0].results[1].locations[0].physicalLocation.region.startLine, 1);
   assert.match(sarif.runs[0].results[0].partialFingerprints.primaryLocationLineHash, /^[a-f0-9]{64}$/);
+});
+
+test('deduplicates rules and normalizes absolute artifact paths', () => {
+  const context = process.cwd();
+  const source = path.join(context, '.dockerignore');
+  const sarif = toSarif([{
+    context,
+    dockerfile: 'Dockerfile',
+    diagnostics: [
+      { code: 'duplicate', severity: 'info', message: 'z', source, line: 2 },
+      { code: 'duplicate', severity: 'info', message: 'a', source, line: 2 },
+    ],
+  }]);
+  assert.deepEqual(sarif.runs[0].tool.driver.rules.map(({ id }) => id), ['duplicate']);
+  assert.deepEqual(sarif.runs[0].results.map(({ message }) => message.text), ['a', 'z']);
+  assert.equal(
+    sarif.runs[0].results[0].locations[0].physicalLocation.artifactLocation.uri,
+    '.dockerignore',
+  );
 });

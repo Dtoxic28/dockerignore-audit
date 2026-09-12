@@ -167,8 +167,8 @@ async function auditContextInternal(context, dockerfile, options, walked, docker
   diagnostics.push(...findIncludedDirectories(files));
 
   const stats = buildStats(files);
-  const maxBytes = options.maxBytes ?? DEFAULT_MAX_BYTES;
-  const maxFiles = options.maxFiles ?? DEFAULT_MAX_FILES;
+  const maxBytes = limitOption(options, 'maxBytes', DEFAULT_MAX_BYTES);
+  const maxFiles = limitOption(options, 'maxFiles', DEFAULT_MAX_FILES);
   if (Number.isFinite(maxBytes) && stats.includedBytes > maxBytes) {
     diagnostics.push({
       code: 'large-context',
@@ -237,6 +237,15 @@ async function findInactiveAdjacentIgnore(context, dockerfile, ignoreFile) {
     line: 1,
     column: 1,
   };
+}
+
+function limitOption(options, name, fallback) {
+  const value = options[name];
+  if (value == null) return fallback;
+  if (typeof value !== 'number' || !Number.isFinite(value) || value < 0) {
+    throw new TypeError(`${name} must be a non-negative finite number.`);
+  }
+  return value;
 }
 
 function ignoredDiagnosticCodes(options) {

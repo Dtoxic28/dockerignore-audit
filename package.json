@@ -1,6 +1,6 @@
 {
   "name": "dockerignore-audit",
-  "version": "0.4.0",
+  "version": "0.4.1",
   "description": "Audit files eligible for Docker and Compose build contexts with current .dockerignore semantics.",
   "type": "module",
   "bin": {
@@ -21,8 +21,9 @@
     "CHANGELOG.md"
   ],
   "scripts": {
-    "lint": "node --check src/index.js && node --check src/compose.js && node --check src/matcher.js && node --check src/cli.js && node --check src/action.js && node --check test/index.test.js && node --check test/matcher.test.js && node --check test/docker-conformance.test.js && node --check test/sarif.test.js",
+    "lint": "node --check src/index.js && node --check src/compose.js && node --check src/matcher.js && node --check src/cli.js && node --check src/action.js && node --check test/index.test.js && node --check test/matcher.test.js && node --check test/docker-conformance.test.js && node --check scripts/docker-conformance.js && node --check test/sarif.test.js",
     "test": "node --test",
+    "test:docker": "node scripts/docker-conformance.js",
     "check": "npm run lint && npm test && npm pack --dry-run"
   },
   "engines": {

@@ -303,6 +303,29 @@ test('CLI emits JSON and applies failure thresholds', async (context) => {
   assert.match(conflictingRun.stderr, /cannot be combined/);
 });
 
+test('validates public limits and CLI byte overflow', async (context) => {
+  const root = await fixture(context, {
+    Dockerfile: 'FROM scratch\n',
+    '.dockerignore': '',
+  });
+
+  await assert.rejects(
+    auditContext({ context: root, maxBytes: Number.POSITIVE_INFINITY }),
+    /maxBytes must be a non-negative finite number/,
+  );
+  await assert.rejects(
+    auditContext({ context: root, maxFiles: '10' }),
+    /maxFiles must be a non-negative finite number/,
+  );
+
+  const overflow = spawnSync(process.execPath, [cli, root, '--max-bytes', '9000000000000000000B'], {
+    cwd: repository,
+    encoding: 'utf8',
+  });
+  assert.equal(overflow.status, 2, overflow.stderr);
+  assert.match(overflow.stderr, /must fit a safe integer/);
+});
+
 test('writes SARIF and suppresses unchanged baseline diagnostics', async (context) => {
   const root = await fixture(context, {
     Dockerfile: 'FROM scratch\n',
@@ -338,6 +361,32 @@ test('writes SARIF and suppresses unchanged baseline diagnostics', async (contex
   assert.equal(sarifReport.runs[0].results[0].ruleId, 'unused-rule');
 });
 
+test('rejects missing or invalid baselines and SARIF destinations', async (context) => {
+  const root = await fixture(context, {
+    Dockerfile: 'FROM scratch\n',
+    '.dockerignore': '',
+  });
+  const missingBaseline = spawnSync(process.execPath, [
+    cli, root, '--baseline', path.join(root, 'missing.json'), '--json',
+  ], { cwd: repository, encoding: 'utf8' });
+  assert.equal(missingBaseline.status, 2, missingBaseline.stderr);
+  assert.match(missingBaseline.stderr, /Baseline file could not be read/);
+
+  const invalidBaseline = path.join(root, 'invalid.json');
+  await writeFile(invalidBaseline, '{not-json');
+  const invalid = spawnSync(process.execPath, [
+    cli, root, '--baseline', invalidBaseline, '--json',
+  ], { cwd: repository, encoding: 'utf8' });
+  assert.equal(invalid.status, 2, invalid.stderr);
+  assert.match(invalid.stderr, /Baseline file is not valid JSON/);
+
+  const sarifFailure = spawnSync(process.execPath, [
+    cli, root, '--sarif', path.join(root, 'missing', 'results.sarif'),
+  ], { cwd: repository, encoding: 'utf8' });
+  assert.equal(sarifFailure.status, 2, sarifFailure.stderr);
+  assert.match(sarifFailure.stderr, /dockerignore-audit:/);
+});
+
 test('GitHub Action forwards inputs and exit status', async (context) => {
   const root = await fixture(context, {
     Dockerfile: 'FROM scratch\n',
@@ -360,9 +409,22 @@ test('GitHub Action forwards inputs and exit status', async (context) => {
   const actionSarif = JSON.parse(await readFile(path.join(root, 'action.sarif'), 'utf8'));
   assert.equal(actionSarif.version, '2.1.0');
 
+  const baseline = path.join(root, 'baseline.json');
+  await writeFile(baseline, JSON.stringify([{
+    context: root,
+    dockerfile: 'Dockerfile',
+    diagnostics: [{
+      code: 'unused-rule',
+      severity: 'warning',
+      message: 'Rule does not change any path in the current context: \"unused\".',
+      source: '.dockerignore',
+      line: 1,
+      column: 1,
+    }],
+  }]), 'utf8');
   const passing = spawnSync(process.execPath, [action], {
     cwd: root,
-    env: { ...environment, INPUT_IGNORE: 'unused-rule' },
+    env: { ...environment, INPUT_BASELINE: baseline },
     encoding: 'utf8',
   });
   assert.equal(passing.status, 0, passing.stderr);
