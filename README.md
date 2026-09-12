@@ -12,7 +12,7 @@ Audit files eligible for Docker and Compose build contexts. Uses current `.docke
 
 ```sh
 # Tagged GitHub release; no registry package required
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 .
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 .
 
 # Local checkout
 npm ci
@@ -48,32 +48,32 @@ Examples:
 
 ```sh
 # Audit every discovered Dockerfile
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 .
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 .
 
 # Audit one build definition
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 . -f docker/release.Dockerfile
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . -f docker/release.Dockerfile
 
 # Audit contexts resolved from Compose, including overlays
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 . --compose compose.yaml --compose compose.prod.yaml
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --compose compose.yaml --compose compose.prod.yaml
 
 # Explain inclusion or exclusion
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 . --explain .env
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --explain .env
 
 # CI output and warning threshold
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 . --json --fail-on warning
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --json --fail-on warning
 
 # Inspect exactly which paths are eligible or ignored
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 . --list included
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --list included
 
 # Suppress a known diagnostic without hiding other warnings
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 . --ignore unused-rule --fail-on warning
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --ignore unused-rule --fail-on warning
 
 # Create a baseline, then fail only on new diagnostics
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 . --json > .dockerignore-audit-baseline.json || true
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 . --baseline .dockerignore-audit-baseline.json --fail-on warning
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --json > .dockerignore-audit-baseline.json || true
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --baseline .dockerignore-audit-baseline.json --fail-on warning
 
 # Emit SARIF for code-scanning or artifact upload
-npx --yes github:Dtoxic28/dockerignore-audit#v0.4.1 . --sarif dockerignore-audit.sarif --fail-on warning
+npx --yes github:Dtoxic28/dockerignore-audit#v0.4.0 . --sarif dockerignore-audit.sarif --fail-on warning
 ```
 
 Exit codes: `0` clean, `1` configured severity reached, `2` usage or runtime error.
@@ -81,7 +81,7 @@ Exit codes: `0` clean, `1` configured severity reached, `2` usage or runtime err
 ## GitHub Actions
 
 ```yaml
-- uses: Dtoxic28/dockerignore-audit@v0.4.1
+- uses: Dtoxic28/dockerignore-audit@v0.4.0
   with:
     context: .
     compose: compose.yaml
