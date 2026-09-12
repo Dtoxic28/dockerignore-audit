@@ -44,21 +44,25 @@ export async function auditCompose(options = {}) {
   }
 
   const walkedContexts = new Map();
-  const reports = [];
-  for (const build of builds) {
-    const context = await resolveContext(build.context);
+  const walkOnce = (context) => {
     let walked = walkedContexts.get(context);
     if (!walked) {
-      walked = await walkContext(context);
+      walked = walkContext(context);
       walkedContexts.set(context, walked);
     }
+    return walked;
+  };
+
+  const reports = await Promise.all(builds.map(async (build) => {
+    const context = await resolveContext(build.context);
+    const walked = await walkOnce(context);
     const dockerfileInput = build.dockerfileText == null
       ? undefined
       : { source: 'dockerfile_inline', text: build.dockerfileText };
     const report = await auditContextInternal(context, build.dockerfile, options, walked, dockerfileInput);
     report.composeTargets = build.composeTargets;
-    reports.push(report);
-  }
+    return report;
+  }));
 
   if (skipped.length > 0 && !ignoredDiagnosticCodes(options).has('compose-context-skipped')) {
     const composeSource = displayPath(projectDirectory, source);
