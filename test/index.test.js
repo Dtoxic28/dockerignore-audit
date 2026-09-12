@@ -198,6 +198,18 @@ test('reports active Docker metadata as unavailable to COPY', async (context) =>
   assert.ok(report.diagnostics.some(({ code }) => code === 'copy-source-unavailable'));
 });
 
+test('reports unterminated Dockerfile COPY quotes', async (context) => {
+  const root = await fixture(context, {
+    Dockerfile: 'FROM scratch\nCOPY "unterminated /app\n',
+    '.dockerignore': '',
+  });
+
+  const report = await auditContext({ context: root });
+  const diagnostic = report.diagnostics.find(({ code }) => code === 'dockerfile-syntax');
+  assert.equal(diagnostic.message, 'Unterminated quoted word.');
+  assert.equal(diagnostic.line, 2);
+});
+
 test('uses Docker COPY glob semantics', async (context) => {
   const root = await fixture(context, {
     Dockerfile: 'FROM scratch\nCOPY *.{js,ts} /app/\n',

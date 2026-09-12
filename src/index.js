@@ -654,7 +654,11 @@ function parseCopyInstruction(input) {
       return { error: 'Invalid COPY/ADD JSON form.' };
     }
   } else {
-    values = splitShellWords(rest);
+    try {
+      values = splitShellWords(rest);
+    } catch (error) {
+      return { error: error.message };
+    }
   }
 
   if (values.length < 2) return { error: 'COPY/ADD requires a source and destination.' };
@@ -686,6 +690,7 @@ function splitShellWords(input) {
     }
   }
 
+  if (quote) throw new SyntaxError('Unterminated quoted word.');
   if (escaped) word += '\\';
   if (word) words.push(word);
   return words;

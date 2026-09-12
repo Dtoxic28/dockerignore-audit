@@ -4,6 +4,7 @@
 
 - Validate public size/file limits and reject unsafe CLI byte values.
 - Add an explicit Docker conformance command with local skip and CI-required modes.
+- Report unterminated quoted COPY/ADD sources as Dockerfile syntax errors.
 
 ## 0.4.0 — 2026-09-12
 
